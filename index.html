@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 BME280 Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0d1117;color:#e6edf3;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:20px}
+  h1{font-size:18px;font-weight:500;color:#58a6ff;letter-spacing:1px;margin-bottom:4px}
+  .subtitle{font-size:12px;color:#8b949e;margin-bottom:20px}
+  .top-bar{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:10px}
+  .status{display:flex;align-items:center;gap:6px;font-size:12px;color:#8b949e;background:#161b22;border:1px solid #30363d;padding:6px 12px;border-radius:20px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#3fb950;animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .dot.offline{background:#f85149;animation:none}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+  .card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;position:relative;overflow:hidden}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+  .card.temp::before{background:linear-gradient(90deg,#ff7b72,#ffa657)}
+  .card.hum::before{background:linear-gradient(90deg,#58a6ff,#79c0ff)}
+  .card.pres::before{background:linear-gradient(90deg,#56d364,#3fb950)}
+  .card-icon{font-size:20px;margin-bottom:8px}
+  .card-label{font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+  .card-value{font-size:32px;font-weight:600;line-height:1}
+  .card-unit{font-size:13px;color:#8b949e;margin-left:2px}
+  .card-trend{font-size:11px;margin-top:6px}
+  .trend-up{color:#f85149}
+  .trend-down{color:#3fb950}
+  .trend-stable{color:#8b949e}
+  .alert-bar{background:#1c1e24;border:1px solid #f85149;border-radius:8px;padding:10px 14px;margin-bottom:20px;display:none;align-items:center;gap:8px;font-size:13px}
+  .alert-bar.show{display:flex}
+  .alert-icon{color:#f85149;font-size:16px}
+  .section-title{font-size:13px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+  .chart-wrap{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px;margin-bottom:20px}
+  .chart-tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tab{background:transparent;border:1px solid #30363d;color:#8b949e;padding:5px 14px;border-radius:20px;font-size:12px;cursor:pointer;transition:all .2s}
+  .tab.active{background:#21262d;border-color:#58a6ff;color:#58a6ff}
+  .chart-canvas-wrap{position:relative;height:220px}
+  .bottom-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+  @media(max-width:500px){.bottom-row{grid-template-columns:1fr}}
+  .alerts-config{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px}
+  .alert-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:13px}
+  .alert-row:last-child{margin-bottom:0}
+  .alert-label{color:#c9d1d9}
+  .alert-input-wrap{display:flex;align-items:center;gap:6px}
+  input[type=number]{background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:6px;width:70px;font-size:13px}
+  input[type=number]:focus{outline:none;border-color:#58a6ff}
+  .badge{font-size:10px;padding:2px 8px;border-radius:10px;border:1px solid}
+  .badge.ok{color:#3fb950;border-color:#3fb950;background:#0d2a17}
+  .badge.warn{color:#f85149;border-color:#f85149;background:#2d0d0d}
+  .export-wrap{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:16px}
+  .export-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .btn{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:7px 16px;border-radius:8px;font-size:13px;cursor:pointer;transition:all .2s}
+  .btn:hover{border-color:#58a6ff;color:#58a6ff}
+  .next-update{display:flex;align-items:center;gap:8px;font-size:12px;color:#8b949e;background:#161b22;border:1px solid #30363d;padding:8px 14px;border-radius:8px;margin-bottom:20px}
+  .timer-bar{flex:1;height:4px;background:#21262d;border-radius:2px;overflow:hidden}
+  .timer-fill{height:100%;background:#58a6ff;border-radius:2px;transition:width 1s linear}
+  .last-reading{font-size:11px;color:#8b949e;text-align:right;margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div>
+    <h1>ESP32 BME280 · Dashboard</h1>
+    <div class="subtitle">Monitoramento ambiental em tempo real</div>
+  </div>
+  <div class="status" id="statusBadge">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">Online · Simulando</span>
+  </div>
+</div>
+
+<div class="alert-bar" id="alertBar">
+  <span class="alert-icon">⚠</span>
+  <span id="alertMsg">Alerta detectado!</span>
+</div>
+
+<div class="next-update">
+  <span id="timerLabel">Próxima leitura em <strong id="countdown">30:00</strong></span>
+  <div class="timer-bar"><div class="timer-fill" id="timerFill" style="width:100%"></div></div>
+</div>
+
+<div class="last-reading" id="lastReading">Última leitura: agora</div>
+
+<div class="cards">
+  <div class="card temp">
+    <div class="card-icon">🌡</div>
+    <div class="card-label">Temperatura</div>
+    <div><span class="card-value" id="tempVal">--</span><span class="card-unit">°C</span></div>
+    <div class="card-trend" id="tempTrend">—</div>
+  </div>
+  <div class="card hum">
+    <div class="card-icon">💧</div>
+    <div class="card-label">Umidade</div>
+    <div><span class="card-value" id="humVal">--</span><span class="card-unit">%</span></div>
+    <div class="card-trend" id="humTrend">—</div>
+  </div>
+  <div class="card pres">
+    <div class="card-icon">🔵</div>
+    <div class="card-label">Pressão</div>
+    <div><span class="card-value" id="presVal">--</span><span class="card-unit">hPa</span></div>
+    <div class="card-trend" id="presTrend">—</div>
+  </div>
+</div>
+
+<div class="chart-wrap">
+  <div class="section-title">Histórico das últimas leituras</div>
+  <div class="chart-tabs">
+    <button class="tab active" onclick="switchTab('temp',this)">Temperatura</button>
+    <button class="tab" onclick="switchTab('hum',this)">Umidade</button>
+    <button class="tab" onclick="switchTab('pres',this)">Pressão</button>
+  </div>
+  <div class="chart-canvas-wrap">
+    <canvas id="histChart" role="img" aria-label="Gráfico histórico das leituras do sensor BME280">Histórico de leituras do sensor.</canvas>
+  </div>
+</div>
+
+<div class="bottom-row">
+  <div class="alerts-config">
+    <div class="section-title">Alertas</div>
+    <div class="alert-row">
+      <span class="alert-label">Temp. máx (°C)</span>
+      <div class="alert-input-wrap">
+        <input type="number" id="alertTemp" value="35" min="0" max="80">
+        <span class="badge ok" id="badgeTemp">OK</span>
+      </div>
+    </div>
+    <div class="alert-row">
+      <span class="alert-label">Umidade máx (%)</span>
+      <div class="alert-input-wrap">
+        <input type="number" id="alertHum" value="80" min="0" max="100">
+        <span class="badge ok" id="badgeHum">OK</span>
+      </div>
+    </div>
+    <div class="alert-row">
+      <span class="alert-label">Pressão mín (hPa)</span>
+      <div class="alert-input-wrap">
+        <input type="number" id="alertPres" value="990" min="900" max="1100">
+        <span class="badge ok" id="badgePres">OK</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="export-wrap">
+    <div class="section-title">Exportar dados</div>
+    <p style="font-size:12px;color:#8b949e;margin-bottom:8px">Baixe o histórico das leituras no formato desejado.</p>
+    <div class="export-btns">
+      <button class="btn" onclick="exportCSV()">⬇ CSV</button>
+      <button class="btn" onclick="exportJSON()">⬇ JSON</button>
+      <button class="btn" onclick="clearHistory()">🗑 Limpar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const INTERVAL = 30 * 60;
+let countdown = INTERVAL;
+let readings = [];
+let activeTab = 'temp';
+let chart;
+
+function rnd(min, max, dec=1){ return parseFloat((Math.random()*(max-min)+min).toFixed(dec)); }
+
+function genReading(){
+  const last = readings.length ? readings[readings.length-1] : null;
+  const t = last ? Math.max(15, Math.min(45, last.temp + rnd(-1.5,1.5))) : rnd(20,30);
+  const h = last ? Math.max(20, Math.min(100, last.hum + rnd(-3,3))) : rnd(45,70);
+  const p = last ? Math.max(970, Math.min(1040, last.pres + rnd(-2,2))) : rnd(1005,1020);
+  const now = new Date();
+  return { temp:parseFloat(t.toFixed(1)), hum:parseFloat(h.toFixed(1)), pres:parseFloat(p.toFixed(1)),
+    time: now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),
+    ts: now.toISOString() };
+}
+
+function addReading(r){
+  readings.push(r);
+  if(readings.length > 48) readings.shift();
+}
+
+function trend(arr, key){
+  if(arr.length < 2) return '';
+  const diff = arr[arr.length-1][key] - arr[arr.length-2][key];
+  if(Math.abs(diff) < 0.3) return '<span class="trend-stable">→ estável</span>';
+  if(diff > 0) return `<span class="trend-up">▲ +${Math.abs(diff).toFixed(1)}</span>`;
+  return `<span class="trend-down">▼ -${Math.abs(diff).toFixed(1)}</span>`;
+}
+
+function updateCards(){
+  if(!readings.length) return;
+  const r = readings[readings.length-1];
+  document.getElementById('tempVal').textContent = r.temp.toFixed(1);
+  document.getElementById('humVal').textContent = r.hum.toFixed(1);
+  document.getElementById('presVal').textContent = r.pres.toFixed(1);
+  document.getElementById('tempTrend').innerHTML = trend(readings,'temp');
+  document.getElementById('humTrend').innerHTML = trend(readings,'hum');
+  document.getElementById('presTrend').innerHTML = trend(readings,'pres');
+  document.getElementById('lastReading').textContent = 'Última leitura: ' + r.time;
+  checkAlerts(r);
+}
+
+function checkAlerts(r){
+  const tLim = +document.getElementById('alertTemp').value;
+  const hLim = +document.getElementById('alertHum').value;
+  const pLim = +document.getElementById('alertPres').value;
+  const msgs = [];
+  setBadge('badgeTemp', r.temp > tLim);
+  setBadge('badgeHum', r.hum > hLim);
+  setBadge('badgePres', r.pres < pLim);
+  if(r.temp > tLim) msgs.push(`Temperatura alta: ${r.temp}°C (máx ${tLim}°C)`);
+  if(r.hum > hLim) msgs.push(`Umidade alta: ${r.hum}% (máx ${hLim}%)`);
+  if(r.pres < pLim) msgs.push(`Pressão baixa: ${r.pres} hPa (mín ${pLim} hPa)`);
+  const bar = document.getElementById('alertBar');
+  if(msgs.length){
+    bar.classList.add('show');
+    document.getElementById('alertMsg').textContent = msgs.join(' · ');
+  } else {
+    bar.classList.remove('show');
+  }
+}
+
+function setBadge(id, warn){
+  const el = document.getElementById(id);
+  el.className = 'badge ' + (warn ? 'warn' : 'ok');
+  el.textContent = warn ? 'ALERTA' : 'OK';
+}
+
+const colors = { temp:'#ff7b72', hum:'#58a6ff', pres:'#56d364' };
+const labels = { temp:'Temperatura (°C)', hum:'Umidade (%)', pres:'Pressão (hPa)' };
+
+function buildChart(){
+  const ctx = document.getElementById('histChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type:'line',
+    data:{ labels:[], datasets:[{ label: labels[activeTab], data:[], borderColor: colors[activeTab],
+      backgroundColor: colors[activeTab]+'22', fill:true, tension:0.4, pointRadius:3,
+      pointBackgroundColor: colors[activeTab] }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{
+        x:{ grid:{color:'#21262d'}, ticks:{color:'#8b949e',font:{size:11}} },
+        y:{ grid:{color:'#21262d'}, ticks:{color:'#8b949e',font:{size:11}} }
+      }
+    }
+  });
+}
+
+function refreshChart(){
+  if(!chart) return;
+  const lbs = readings.map(r=>r.time);
+  const vals = readings.map(r=>r[activeTab]);
+  chart.data.labels = lbs;
+  chart.data.datasets[0].data = vals;
+  chart.data.datasets[0].borderColor = colors[activeTab];
+  chart.data.datasets[0].backgroundColor = colors[activeTab]+'22';
+  chart.data.datasets[0].pointBackgroundColor = colors[activeTab];
+  chart.data.datasets[0].label = labels[activeTab];
+  chart.update();
+}
+
+function switchTab(tab, el){
+  activeTab = tab;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  refreshChart();
+}
+
+function updateTimer(){
+  countdown--;
+  if(countdown <= 0){ countdown = INTERVAL; const r = genReading(); addReading(r); updateCards(); refreshChart(); }
+  const m = String(Math.floor(countdown/60)).padStart(2,'0');
+  const s = String(countdown%60).padStart(2,'0');
+  document.getElementById('countdown').textContent = `${m}:${s}`;
+  document.getElementById('timerFill').style.width = (countdown/INTERVAL*100).toFixed(1)+'%';
+}
+
+function exportCSV(){
+  const header = 'Timestamp,Temperatura (°C),Umidade (%),Pressão (hPa)\n';
+  const rows = readings.map(r=>`${r.ts},${r.temp},${r.hum},${r.pres}`).join('\n');
+  download('bme280_leituras.csv', 'text/csv', header+rows);
+}
+
+function exportJSON(){
+  download('bme280_leituras.json','application/json',JSON.stringify(readings,null,2));
+}
+
+function clearHistory(){
+  if(confirm('Limpar todo o histórico?')){ readings=[]; refreshChart(); updateCards(); }
+}
+
+function download(name, type, content){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content],{type}));
+  a.download = name; a.click();
+}
+
+// Seed histórico com 12 leituras retroativas
+function seedHistory(){
+  const now = Date.now();
+  for(let i=11;i>=0;i--){
+    const d = new Date(now - i*30*60*1000);
+    const last = readings.length ? readings[readings.length-1] : null;
+    const t = last ? Math.max(15,Math.min(45,last.temp+rnd(-1.5,1.5))) : rnd(22,28);
+    const h = last ? Math.max(20,Math.min(100,last.hum+rnd(-3,3))) : rnd(50,65);
+    const p = last ? Math.max(970,Math.min(1040,last.pres+rnd(-2,2))) : rnd(1008,1018);
+    readings.push({ temp:parseFloat(t.toFixed(1)), hum:parseFloat(h.toFixed(1)), pres:parseFloat(p.toFixed(1)),
+      time: d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}), ts: d.toISOString() });
+  }
+}
+
+document.querySelectorAll('input[type=number]').forEach(inp=>inp.addEventListener('input',()=>{
+  if(readings.length) checkAlerts(readings[readings.length-1]);
+}));
+
+seedHistory();
+buildChart();
+updateCards();
+refreshChart();
+setInterval(updateTimer, 1000);
+</script>
+</body>
+</html>
