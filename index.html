@@ -157,22 +157,38 @@
 
 <script>
 const INTERVAL = 30 * 60;
+const BIN_ID  = '69e9f38036566621a8e295f0';
+const API_KEY = '$2a$10$qGcFxMRK.TxvZqnS7GfxrutSkw3EQGBYsjgQklcW73e3GkiN21YlC';
+const BIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
+
 let countdown = INTERVAL;
 let readings = [];
 let activeTab = 'temp';
 let chart;
 
-function rnd(min, max, dec=1){ return parseFloat((Math.random()*(max-min)+min).toFixed(dec)); }
-
-function genReading(){
-  const last = readings.length ? readings[readings.length-1] : null;
-  const t = last ? Math.max(15, Math.min(45, last.temp + rnd(-1.5,1.5))) : rnd(20,30);
-  const h = last ? Math.max(20, Math.min(100, last.hum + rnd(-3,3))) : rnd(45,70);
-  const p = last ? Math.max(970, Math.min(1040, last.pres + rnd(-2,2))) : rnd(1005,1020);
-  const now = new Date();
-  return { temp:parseFloat(t.toFixed(1)), hum:parseFloat(h.toFixed(1)), pres:parseFloat(p.toFixed(1)),
-    time: now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),
-    ts: now.toISOString() };
+async function fetchReading(){
+  try {
+    document.getElementById('statusText').textContent = 'Buscando dados...';
+    const res = await fetch(BIN_URL, { headers:{ 'X-Master-Key': API_KEY } });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const d = json.record;
+    const now = new Date();
+    const r = {
+      temp: parseFloat(parseFloat(d.temp).toFixed(1)),
+      hum:  parseFloat(parseFloat(d.hum).toFixed(1)),
+      pres: parseFloat(parseFloat(d.pres).toFixed(1)),
+      time: now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),
+      ts:   now.toISOString()
+    };
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusText').textContent = 'Online · JSONBin';
+    return r;
+  } catch(e) {
+    document.getElementById('statusDot').className = 'dot offline';
+    document.getElementById('statusText').textContent = 'Erro: ' + e.message;
+    return null;
+  }
 }
 
 function addReading(r){
@@ -270,7 +286,10 @@ function switchTab(tab, el){
 
 function updateTimer(){
   countdown--;
-  if(countdown <= 0){ countdown = INTERVAL; const r = genReading(); addReading(r); updateCards(); refreshChart(); }
+  if(countdown <= 0){
+    countdown = INTERVAL;
+    fetchReading().then(r=>{ if(r){ addReading(r); updateCards(); refreshChart(); } });
+  }
   const m = String(Math.floor(countdown/60)).padStart(2,'0');
   const s = String(countdown%60).padStart(2,'0');
   document.getElementById('countdown').textContent = `${m}:${s}`;
@@ -315,10 +334,11 @@ document.querySelectorAll('input[type=number]').forEach(inp=>inp.addEventListene
   if(readings.length) checkAlerts(readings[readings.length-1]);
 }));
 
-seedHistory();
+// Busca leitura inicial real do JSONBin
 buildChart();
-updateCards();
-refreshChart();
+fetchReading().then(r => {
+  if(r){ addReading(r); updateCards(); refreshChart(); }
+});
 setInterval(updateTimer, 1000);
 </script>
 </body>
